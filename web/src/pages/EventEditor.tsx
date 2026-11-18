@@ -19,11 +19,13 @@ import { IconArrowLeft, IconCalendar, IconClock, IconMapPin, IconRestore } from 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { CoverImagePicker } from '../components/CoverImagePicker';
 import { DaySlotPicker } from '../components/DaySlotPicker';
 import { HourSlotPicker } from '../components/HourSlotPicker';
 import { errorMessage, useApi } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
-import type { EventInput, Mode, SlotInput } from '../lib/types';
+import { CENTER, type CoverChange } from '../lib/cover';
+import type { Cover, EventInput, Focus, Mode, SlotInput } from '../lib/types';
 
 const draftKey = (id?: string) => `quorum:draft:${id ?? 'new'}`;
 
@@ -60,6 +62,11 @@ export function EventEditor({ today }: { today?: Date }) {
   // dirty: the user changed something that is worth keeping as a draft.
   const [dirty, setDirty] = useState(false);
   const [restored, setRestored] = useState(initial !== emptyEvent);
+  // Images are not part of drafts: files cannot be kept in session storage.
+  const [cover, setCover] = useState<CoverChange>({ kind: 'keep' });
+  const [currentCover, setCurrentCover] = useState<Cover | undefined>();
+  const [focus, setFocus] = useState<Focus>(CENTER);
+  const [focusChanged, setFocusChanged] = useState(false);
   const [reload, setReload] = useState(0);
 
   const apply = (e: EventInput) => {
@@ -90,6 +97,8 @@ export function EventEditor({ today }: { today?: Date }) {
         const draft = readDraft(id);
         apply(draft ?? e);
         setRestored(!!draft);
+        setCurrentCover(e.cover);
+        setFocus(e.cover?.focus ?? CENTER);
       })
       .catch((e: unknown) => alive && setLoadError(e))
       .finally(() => alive && setLoading(false));
@@ -119,6 +128,18 @@ export function EventEditor({ today }: { today?: Date }) {
   const titleError = touched && !title.trim() ? t('editor.titleRequired') : null;
   const slotsError = touched && slots.length === 0 ? t('editor.slotsRequired') : null;
 
+  // The event itself is saved first, so a failed upload only loses the image.
+  const saveCover = async (eventId: string) => {
+    try {
+      if (cover.kind === 'set') await api.uploadImage(eventId, cover.file, focus);
+      if (cover.kind === 'remove') await api.deleteImage(eventId);
+      // Only the position of the existing image changed.
+      if (cover.kind === 'keep' && currentCover && focusChanged) await api.setImageFocus(eventId, focus);
+    } catch (err) {
+      notifications.show({ color: 'orange', title: t('cover.uploadFailed'), message: errorMessage(err) });
+    }
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
@@ -128,6 +149,7 @@ export function EventEditor({ today }: { today?: Date }) {
       const input = { title, description, location, mode, slots };
       const saved = id ? await api.updateEvent(id, input) : await api.createEvent(input);
       sessionStorage.removeItem(draftKey(id));
+      await saveCover(saved.id);
       notifications.show({
         color: 'teal',
         title: id ? t('editor.updated') : t('editor.created'),
@@ -211,6 +233,21 @@ export function EventEditor({ today }: { today?: Date }) {
               value={description}
               onChange={(e) => edit(setDescription)(e.currentTarget.value)}
             />
+            <div>
+              <Text fz="sm" fw={500} mb={4}>
+                {t('cover.title')}
+              </Text>
+              <CoverImagePicker
+                currentUrl={currentCover?.url}
+                value={cover}
+                onChange={setCover}
+                focus={focus}
+                onFocusChange={(f) => {
+                  setFocus(f);
+                  setFocusChanged(true);
+                }}
+              />
+            </div>
           </Stack>
         </Card>
         <Card p="xl">

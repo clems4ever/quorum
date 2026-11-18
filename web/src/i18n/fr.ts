@@ -111,6 +111,19 @@ export const fr: Translations = {
     draftRestoredText: 'Nous avons conservé les modifications que vous n’aviez pas encore enregistrées.',
     discardDraft: 'Abandonner le brouillon',
   },
+  cover: {
+    title: 'Image de couverture',
+    hint: 'Facultatif. JPEG, PNG, WebP ou GIF, jusqu’à 10 Mo.',
+    drop: 'Déposez une image ici ou cliquez pour en choisir une',
+    replace: 'Remplacer',
+    remove: 'Retirer',
+    tooLarge: 'Cette image dépasse 10 Mo.',
+    invalidType: 'Choisissez une image JPEG, PNG, WebP ou GIF.',
+    uploadFailed: 'L’événement a été enregistré, mais son image n’a pas pu être mise à jour',
+    reposition: 'Faites glisser pour recadrer',
+    repositionLabel:
+      'Position de l’image de couverture. Faites glisser l’image, ou utilisez les flèches, pour choisir la partie visible.',
+  },
   days: {
     selected_one: '{{count}} journée sélectionnée',
     selected_other: '{{count}} journées sélectionnées',
@@ -223,5 +236,9 @@ export const fr: Translations = {
     too_many_slots: 'Trop d’options.',
     invalid_slot: 'Chaque option doit se terminer après son début.',
     duplicate_slot: 'Les options doivent être uniques.',
+    image_too_large: 'L’image est trop lourde (10 Mo maximum).',
+    invalid_image: 'Le fichier n’est pas une image prise en charge (JPEG, PNG, WebP ou GIF).',
+    image_not_found: 'Cet événement n’a pas d’image.',
+    invalid_focus: 'Position d’image invalide.',
   },
 };

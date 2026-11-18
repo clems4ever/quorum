@@ -9,6 +9,7 @@ import {
   Center,
   CopyButton,
   Group,
+  Image,
   Loader,
   Menu,
   Modal,
@@ -39,6 +40,7 @@ import { ApiError, errorMessage, useApi } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
 import { bestSlotIds, formatSlot, scoreSlots } from '../lib/slots';
 import { nextVote } from '../lib/votes';
+import { objectPosition } from '../lib/cover';
 import type { EventDetail, VoteOrNo } from '../lib/types';
 
 function draftFrom(event: EventDetail, userId: string): Record<string, VoteOrNo> {
@@ -229,7 +231,18 @@ function EventView({ id }: { id: string }) {
         </Group>
       </Anchor>
 
-      <Card p="xl">
+      <Card padding="xl">
+        {event.cover && (
+          <Card.Section mb="lg">
+            <Image
+              src={event.cover.url}
+              alt={event.title}
+              h={260}
+              fit="cover"
+              style={{ objectPosition: objectPosition(event.cover.focus) }}
+            />
+          </Card.Section>
+        )}
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Stack gap={6}>
             <Group gap="xs">

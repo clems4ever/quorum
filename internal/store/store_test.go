@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -328,5 +330,141 @@ func TestMigrateError(t *testing.T) {
 	mustClose(t, s)
 	if err := s.migrate(ctx); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestEventImages(t *testing.T) {
+	s := open(t)
+	must(t, s.CreateEvent(ctx, event("e1")))
+	if _, err := s.EventImage(ctx, "e1"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("no image yet: %v", err)
+	}
+
+	img := model.Image{ContentType: "image/png", Data: []byte{1, 2, 3}, Version: "v1", Focus: model.Focus{X: 0.25, Y: 1}}
+	must(t, s.SetEventImage(ctx, "e1", img, t0.Add(time.Hour)))
+	got, err := s.EventImage(ctx, "e1")
+	must(t, err)
+	if got.ContentType != "image/png" || string(got.Data) != "\x01\x02\x03" || got.Version != "v1" || got.Focus != img.Focus {
+		t.Fatalf("got %+v", got)
+	}
+	d, _ := s.GetEvent(ctx, "e1")
+	list, _ := s.ListEvents(ctx, ada.ID)
+	want := model.Cover{Version: "v1", Focus: model.Focus{X: 0.25, Y: 1}}
+	if *d.Cover != want || *list[0].Cover != want || !d.UpdatedAt.Equal(t0.Add(time.Hour)) {
+		t.Fatalf("cover not exposed: %+v %+v %v", d.Cover, list[0].Cover, d.UpdatedAt)
+	}
+
+	// The focus can change without a new upload.
+	must(t, s.SetImageFocus(ctx, "e1", model.Focus{X: 0.1, Y: 0.9}, t0.Add(90*time.Minute)))
+	d, _ = s.GetEvent(ctx, "e1")
+	if d.Cover.Focus != (model.Focus{X: 0.1, Y: 0.9}) || d.Cover.Version != "v1" || !d.UpdatedAt.Equal(t0.Add(90*time.Minute)) {
+		t.Fatalf("focus not updated: %+v %v", d.Cover, d.UpdatedAt)
+	}
+
+	// Replacing keeps a single image.
+	must(t, s.SetEventImage(ctx, "e1", model.Image{ContentType: "image/jpeg", Data: []byte{4}, Version: "v2"}, t0))
+	if got, _ := s.EventImage(ctx, "e1"); got.Version != "v2" || got.ContentType != "image/jpeg" {
+		t.Fatalf("got %+v", got)
+	}
+
+	must(t, s.DeleteEventImage(ctx, "e1", t0.Add(2*time.Hour)))
+	must(t, s.DeleteEventImage(ctx, "e1", t0.Add(3*time.Hour))) // no-op
+	d, _ = s.GetEvent(ctx, "e1")
+	if d.Cover != nil || !d.UpdatedAt.Equal(t0.Add(2*time.Hour)) {
+		t.Fatalf("after delete: %+v %v", d.Cover, d.UpdatedAt)
+	}
+	if err := s.SetImageFocus(ctx, "e1", model.CenterFocus, t0); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("focus without image: %v", err)
+	}
+
+	if err := s.SetEventImage(ctx, "nope", img, t0); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("unknown event: %v", err)
+	}
+
+	// Deleting the event deletes its image.
+	must(t, s.SetEventImage(ctx, "e1", img, t0))
+	must(t, s.DeleteEvent(ctx, "e1"))
+	if _, err := s.EventImage(ctx, "e1"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("image should be gone: %v", err)
+	}
+}
+
+func TestEventImageErrors(t *testing.T) {
+	s := open(t)
+	must(t, s.CreateEvent(ctx, event("e1")))
+	img := model.Image{ContentType: "image/png", Data: []byte{1}, Version: "v"}
+	must(t, s.SetEventImage(ctx, "e1", img, t0))
+	_, err := s.db.ExecContext(ctx, `DROP TABLE event_images`)
+	must(t, err)
+	if err := s.SetEventImage(ctx, "e1", img, t0); err == nil {
+		t.Error("SetEventImage: expected error")
+	}
+	if _, err := s.EventImage(ctx, "e1"); err == nil || errors.Is(err, model.ErrNotFound) {
+		t.Errorf("EventImage: %v", err)
+	}
+	if err := s.DeleteEventImage(ctx, "e1", t0); err == nil {
+		t.Error("DeleteEventImage: expected error")
+	}
+	if err := s.SetImageFocus(ctx, "e1", model.CenterFocus, t0); err == nil {
+		t.Error("SetImageFocus: expected error")
+	}
+	mustClose(t, s)
+	if err := s.SetEventImage(ctx, "e1", img, t0); err == nil {
+		t.Error("closed: expected error")
+	}
+}
+
+func userVersion(t *testing.T, s *SQLite) int {
+	t.Helper()
+	var v int
+	must(t, s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v))
+	return v
+}
+
+// Databases created before schema versioning have the base schema, including
+// cover images without a focus, and user_version 0.
+func TestMigrateUnversionedDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", "file:"+path)
+	must(t, err)
+	_, err = old.ExecContext(ctx, schema+`
+		INSERT INTO users (id, email, name) VALUES ('u1', 'ada@example.com', 'Ada');
+		INSERT INTO events (id, owner_id, title, mode, created_at, updated_at) VALUES ('e1', 'u1', 'Old', 'days', 0, 0);
+		INSERT INTO event_images (event_id, content_type, version, data) VALUES ('e1', 'image/png', 'v0', x'01');`)
+	must(t, err)
+	must(t, old.Close())
+
+	s, err := Open(ctx, path)
+	must(t, err)
+	defer mustClose(t, s)
+	if v := userVersion(t, s); v != len(migrations) {
+		t.Fatalf("user_version = %d, want %d", v, len(migrations))
+	}
+	d, err := s.GetEvent(ctx, "e1")
+	must(t, err)
+	if d.Cover == nil || d.Cover.Focus != model.CenterFocus {
+		t.Fatalf("existing image should be centered: %+v", d.Cover)
+	}
+
+	// Opening again is a no-op.
+	mustClose(t, s)
+	s, err = Open(ctx, path)
+	must(t, err)
+	if v := userVersion(t, s); v != len(migrations) {
+		t.Fatalf("user_version = %d after reopening", v)
+	}
+}
+
+func TestMigrateFailure(t *testing.T) {
+	s := open(t)
+	// Pretend the database is at version 1 while the column already exists:
+	// the second migration fails and the version stays put.
+	_, err := s.db.ExecContext(ctx, `PRAGMA user_version = 1`)
+	must(t, err)
+	if err := s.migrate(ctx); err == nil || !strings.Contains(err.Error(), "migrate to version 2") {
+		t.Fatalf("got %v", err)
+	}
+	if v := userVersion(t, s); v != 1 {
+		t.Fatalf("user_version = %d, want 1", v)
 	}
 }

@@ -12,6 +12,7 @@ Find the time that works for everyone. Quorum is a small Doodle-style scheduler:
 - Two kinds of polls: whole days (calendar picker) or time slots (week grid with click-and-drag, configurable slot length and day bounds)
 - Vote matrix with per-slot totals, the most popular option highlighted, and a final "chosen" date
 - Dashboard listing the events you organize or have answered, with filters and search
+- Optional cover image per event (JPEG, PNG, WebP or GIF up to 10 MB). Images are re-encoded on upload, which strips metadata such as GPS location and scales them to at most 1600 px. They are stored in SQLite next to the events. Organizers drag the image (or use the arrow keys) to choose its focal point, which every view keeps visible when cropping.
 - Light/dark theme toggle (follows the OS by default)
 - English and French: the language follows the browser, and a picker in the header stores an explicit choice. Dates, durations and API error messages are localized too.
 
@@ -92,6 +93,10 @@ docker run -p 8080:8080 -v quorum-data:/data \
   -e PUBLIC_URL=https://quorum.example.com \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... quorum
 ```
+
+## Database
+
+SQLite with versioned migrations (`PRAGMA user_version`), applied automatically at startup. To change the schema, append a migration to `migrations` in `internal/store/store.go`; never edit a released one.
 
 ## Docker Compose with Traefik
 

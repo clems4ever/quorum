@@ -6,6 +6,17 @@ export interface User {
 }
 
 export type Mode = 'days' | 'hours';
+
+/** The point of an image kept visible when it is cropped, as fractions (0.5, 0.5 is the center). */
+export interface Focus {
+  x: number;
+  y: number;
+}
+
+export interface Cover {
+  url: string;
+  focus: Focus;
+}
 export type Vote = 'yes' | 'maybe';
 export type VoteOrNo = Vote | 'no';
 
@@ -37,6 +48,7 @@ export interface EventDetail {
   slots: Slot[];
   closed: boolean;
   finalSlotId?: string;
+  cover?: Cover;
   createdAt: string;
   updatedAt: string;
   responses: Response[];
@@ -54,6 +66,7 @@ export interface EventSummary {
   responseCount: number;
   firstStart?: string;
   lastEnd?: string;
+  cover?: Cover;
   createdAt: string;
   updatedAt: string;
 }

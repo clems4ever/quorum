@@ -14,6 +14,7 @@ import (
 	"quorum/internal/api"
 	"quorum/internal/auth"
 	"quorum/internal/httpserver"
+	"quorum/internal/imageproc"
 	"quorum/internal/static"
 	"quorum/internal/store"
 )
@@ -85,7 +86,7 @@ func New(ctx context.Context, c Config, d Deps) (*App, error) {
 	})
 	mux := http.NewServeMux()
 	(&auth.Handler{Provider: provider, Sessions: sessions, Users: db, Logger: d.Logger}).Register(mux)
-	(&api.API{Store: db, Auth: sessions, Now: d.Now, NewID: d.NewID, Logger: d.Logger}).Register(mux)
+	(&api.API{Store: db, Auth: sessions, Now: d.Now, NewID: d.NewID, Images: imageproc.Normalize, Logger: d.Logger}).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(r.Context()); err != nil {
 			http.Error(w, "unhealthy", http.StatusServiceUnavailable)

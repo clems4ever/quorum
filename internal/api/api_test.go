@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"quorum/internal/imageproc"
 	"quorum/internal/model"
 	"quorum/internal/store"
 )
@@ -104,6 +108,34 @@ func (f *failing) SetResponse(ctx context.Context, eid, uid string, v map[string
 	return f.Store.SetResponse(ctx, eid, uid, v, now)
 }
 
+func (f *failing) SetEventImage(ctx context.Context, id string, img model.Image, now time.Time) error {
+	if err := f.check("SetEventImage"); err != nil {
+		return err
+	}
+	return f.Store.SetEventImage(ctx, id, img, now)
+}
+
+func (f *failing) EventImage(ctx context.Context, id string) (model.Image, error) {
+	if err := f.check("EventImage"); err != nil {
+		return model.Image{}, err
+	}
+	return f.Store.EventImage(ctx, id)
+}
+
+func (f *failing) DeleteEventImage(ctx context.Context, id string, now time.Time) error {
+	if err := f.check("DeleteEventImage"); err != nil {
+		return err
+	}
+	return f.Store.DeleteEventImage(ctx, id, now)
+}
+
+func (f *failing) SetImageFocus(ctx context.Context, id string, focus model.Focus, now time.Time) error {
+	if err := f.check("SetImageFocus"); err != nil {
+		return err
+	}
+	return f.Store.SetImageFocus(ctx, id, focus, now)
+}
+
 func (f *failing) DeleteResponse(ctx context.Context, eid, uid string) error {
 	if err := f.check("DeleteResponse"); err != nil {
 		return err
@@ -144,6 +176,7 @@ func newEnv(t *testing.T) *env {
 			n++
 			return fmt.Sprintf("id%d", n), nil
 		},
+		Images: imageproc.Normalize,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	mux := http.NewServeMux()
@@ -476,4 +509,113 @@ func TestEventVanishesAfterMutation(t *testing.T) {
 	e.create()
 	e.api.Store = &vanishing{Store: e.store}
 	expect(t, e.do("ada", "POST", "/api/events/id1/reopen", nil), 404, "")
+}
+
+func pngBytes(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 4, 2))
+	for i := range img.Pix {
+		img.Pix[i] = 0xff
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestEventImage(t *testing.T) {
+	e := newEnv(t)
+	e.create()
+	expect(t, e.do("ada", http.MethodGet, "/api/events/id1/image", nil), http.StatusNotFound, "image_not_found")
+
+	w := e.do("ada", http.MethodPut, "/api/events/id1/image", string(pngBytes(t)))
+	expect(t, w, http.StatusOK, `"focus":{"x":0.5,"y":0.5}`)
+	d := decodeEvent(t, w)
+	if !strings.HasPrefix(d.Cover.URL, "/api/events/id1/image?v=") {
+		t.Fatalf("imageUrl %q", d.Cover.URL)
+	}
+	expect(t, e.do("ada", http.MethodGet, "/api/events/id1", nil), http.StatusOK, d.Cover.URL)
+	expect(t, e.do("ada", http.MethodGet, "/api/events", nil), http.StatusOK, d.Cover.URL)
+
+	// Any signed-in user can see it; it is cached by version.
+	w = e.do("alan", http.MethodGet, d.Cover.URL, nil)
+	expect(t, w, http.StatusOK, "")
+	if w.Header().Get("Content-Type") != "image/jpeg" || w.Body.Len() == 0 ||
+		!strings.Contains(w.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("headers %v, %d bytes", w.Header(), w.Body.Len())
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, d.Cover.URL, nil)
+	req.Header.Set("X-User", "alan")
+	req.Header.Set("If-None-Match", w.Header().Get("ETag"))
+	cached := httptest.NewRecorder()
+	e.mux.ServeHTTP(cached, req)
+	if cached.Code != http.StatusNotModified || cached.Body.Len() != 0 {
+		t.Fatalf("conditional request: %d", cached.Code)
+	}
+
+	expect(t, e.do("alan", http.MethodPut, "/api/events/id1/image", string(pngBytes(t))), http.StatusForbidden, "")
+	expect(t, e.do("alan", http.MethodDelete, "/api/events/id1/image", nil), http.StatusForbidden, "")
+	expect(t, e.do("ada", http.MethodPut, "/api/events/nope/image", string(pngBytes(t))), http.StatusNotFound, "")
+
+	w = e.do("ada", http.MethodDelete, "/api/events/id1/image", nil)
+	expect(t, w, http.StatusOK, "")
+	if decodeEvent(t, w).Cover != nil {
+		t.Fatal("image should be removed")
+	}
+	expect(t, e.do("ada", http.MethodGet, "/api/events/id1/image", nil), http.StatusNotFound, "")
+}
+
+func TestEventImageRejections(t *testing.T) {
+	e := newEnv(t)
+	e.create()
+	expect(t, e.do("ada", http.MethodPut, "/api/events/id1/image", "<svg/>"), http.StatusBadRequest, "invalid_image")
+
+	e.api.Images = func(io.Reader) (imageproc.Image, error) { return imageproc.Image{}, imageproc.ErrTooLarge }
+	expect(t, e.do("ada", http.MethodPut, "/api/events/id1/image", "x"), http.StatusRequestEntityTooLarge, "image_too_large")
+
+	e.api.Images = func(io.Reader) (imageproc.Image, error) { return imageproc.Image{}, errDB }
+	expect(t, e.do("ada", http.MethodPut, "/api/events/id1/image", "x"), http.StatusInternalServerError, "")
+}
+
+func TestEventImageStoreFailures(t *testing.T) {
+	e := newEnv(t)
+	e.create()
+	e.store.fail["SetEventImage"] = true
+	expect(t, e.do("ada", http.MethodPut, "/api/events/id1/image", string(pngBytes(t))), http.StatusInternalServerError, "")
+	e.store.fail["DeleteEventImage"] = true
+	expect(t, e.do("ada", http.MethodDelete, "/api/events/id1/image", nil), http.StatusInternalServerError, "")
+	e.store.fail["EventImage"] = true
+	expect(t, e.do("ada", http.MethodGet, "/api/events/id1/image", nil), http.StatusInternalServerError, "")
+}
+
+func TestEventImageFocus(t *testing.T) {
+	e := newEnv(t)
+	e.create()
+	patch := func(user, body string) *httptest.ResponseRecorder {
+		return e.do(user, http.MethodPatch, "/api/events/id1/image", body)
+	}
+	expect(t, patch("ada", `{"focus":{"x":0.2,"y":0.3}}`), http.StatusNotFound, "image_not_found")
+
+	w := e.do("ada", http.MethodPut, "/api/events/id1/image?x=0.25&y=1", string(pngBytes(t)))
+	expect(t, w, http.StatusOK, "")
+	if f := decodeEvent(t, w).Cover.Focus; f != (model.Focus{X: 0.25, Y: 1}) {
+		t.Fatalf("upload focus %+v", f)
+	}
+	for _, q := range []string{"x=1.5", "y=-0.1", "x=abc"} {
+		expect(t, e.do("ada", http.MethodPut, "/api/events/id1/image?"+q, string(pngBytes(t))), http.StatusBadRequest, "invalid_focus")
+	}
+
+	w = patch("ada", `{"focus":{"x":0,"y":0.75}}`)
+	expect(t, w, http.StatusOK, "")
+	if c := decodeEvent(t, w).Cover; c.Focus != (model.Focus{X: 0, Y: 0.75}) || c.URL == "" {
+		t.Fatalf("patched cover %+v", c)
+	}
+	expect(t, e.do("ada", http.MethodGet, "/api/events", nil), http.StatusOK, `"focus":{"x":0,"y":0.75}`)
+
+	expect(t, patch("ada", `{"focus":{"x":2,"y":0}}`), http.StatusBadRequest, "invalid_focus")
+	expect(t, patch("ada", `{`), http.StatusBadRequest, "invalid_json")
+	expect(t, patch("alan", `{"focus":{"x":0.5,"y":0.5}}`), http.StatusForbidden, "")
+	e.store.fail["SetImageFocus"] = true
+	expect(t, patch("ada", `{"focus":{"x":0.5,"y":0.5}}`), http.StatusInternalServerError, "")
 }

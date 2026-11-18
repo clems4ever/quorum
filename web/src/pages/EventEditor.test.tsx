@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../lib/api';
 import { alan, eventFixture, fakeApi, renderWithApp } from '../test/utils';
 import { EventEditor } from './EventEditor';
 
@@ -150,5 +151,101 @@ describe('EventEditor drafts', () => {
     await userEvent.type(await screen.findByLabelText(/Title/), 'x');
     await userEvent.click(screen.getByRole('link', { name: 'Cancel' }));
     expect(sessionStorage.getItem('quorum:draft:new')).toBeNull();
+  });
+});
+
+describe('EventEditor cover image', () => {
+  const photo = new File(['x'], 'photo.jpg', { type: 'image/jpeg' });
+  const chooseImage = async (container: HTMLElement) => {
+    fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [photo] } });
+    expect(await screen.findByRole('img', { name: 'Cover image' })).toBeInTheDocument();
+  };
+
+  it('uploads the image after creating the event', async () => {
+    const { api, container } = renderWithApp(<EventEditor today={today} />, { route: '/new', path: '/new' });
+    await userEvent.type(await screen.findByLabelText(/Title/), 'Raclette');
+    await userEvent.click(screen.getByRole('button', { name: '25 November 2026' }));
+    await chooseImage(container);
+    await userEvent.click(screen.getByRole('button', { name: 'Create event' }));
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalledWith('ev1', photo, { x: 0.5, y: 0.5 }));
+    expect(await screen.findByTestId('elsewhere')).toBeInTheDocument();
+    expect(api.deleteImage).not.toHaveBeenCalled();
+  });
+
+  it('keeps the saved event when the upload fails', async () => {
+    const api = fakeApi({ uploadImage: vi.fn().mockRejectedValue(new ApiError(413, 'too large', 'image_too_large')) });
+    const { container } = renderWithApp(<EventEditor today={today} />, { api, route: '/new', path: '/new' });
+    await userEvent.type(await screen.findByLabelText(/Title/), 'Raclette');
+    await userEvent.click(screen.getByRole('button', { name: '25 November 2026' }));
+    await chooseImage(container);
+    await userEvent.click(screen.getByRole('button', { name: 'Create event' }));
+    expect(await screen.findByText('The event was saved, but its image could not be updated')).toBeInTheDocument();
+    expect(screen.getByText('The image is too large (10 MB maximum).')).toBeInTheDocument();
+    expect(await screen.findByTestId('elsewhere')).toBeInTheDocument();
+  });
+
+  it('shows, replaces and removes the image of an existing event', async () => {
+    const api = fakeApi({
+      getEvent: vi
+        .fn()
+        .mockResolvedValue(eventFixture({ cover: { url: '/api/events/ev1/image?v=1', focus: { x: 0.2, y: 0.8 } } })),
+    });
+    renderWithApp(<EventEditor today={today} />, {
+      api,
+      route: '/e/ev1/edit',
+      path: '/e/:id/edit',
+    });
+    expect(await screen.findByRole('img', { name: 'Cover image' })).toHaveAttribute('src', '/api/events/ev1/image?v=1');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.deleteImage).toHaveBeenCalledWith('ev1'));
+    expect(api.uploadImage).not.toHaveBeenCalled();
+    await screen.findByTestId('elsewhere');
+  });
+
+  it('replaces the image of an existing event', async () => {
+    const api = fakeApi({
+      getEvent: vi
+        .fn()
+        .mockResolvedValue(eventFixture({ cover: { url: '/api/events/ev1/image?v=1', focus: { x: 0.2, y: 0.8 } } })),
+    });
+    const { container } = renderWithApp(<EventEditor today={today} />, {
+      api,
+      route: '/e/ev1/edit',
+      path: '/e/:id/edit',
+    });
+    await screen.findByRole('img', { name: 'Cover image' });
+    fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [photo] } });
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: 'Cover image' })).toHaveAttribute('src', 'blob:photo.jpg'),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalledWith('ev1', photo, { x: 0.5, y: 0.5 }));
+    expect(api.deleteImage).not.toHaveBeenCalled();
+  });
+
+  it('saves only the new position of an existing image', async () => {
+    const api = fakeApi({
+      getEvent: vi.fn().mockResolvedValue(eventFixture({ cover: { url: '/img?v=1', focus: { x: 0.5, y: 0.5 } } })),
+    });
+    renderWithApp(<EventEditor today={today} />, { api, route: '/e/ev1/edit', path: '/e/:id/edit' });
+    (await screen.findByTestId('cover-frame')).focus();
+    await userEvent.keyboard('{ArrowDown}');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.setImageFocus).toHaveBeenCalledWith('ev1', { x: 0.5, y: 0.55 }));
+    expect(api.uploadImage).not.toHaveBeenCalled();
+    expect(api.deleteImage).not.toHaveBeenCalled();
+  });
+
+  it('does not touch an unchanged image', async () => {
+    const api = fakeApi({
+      getEvent: vi.fn().mockResolvedValue(eventFixture({ cover: { url: '/img?v=1', focus: { x: 0.5, y: 0.5 } } })),
+    });
+    renderWithApp(<EventEditor today={today} />, { api, route: '/e/ev1/edit', path: '/e/:id/edit' });
+    await screen.findByTestId('cover-frame');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByTestId('elsewhere');
+    expect(api.setImageFocus).not.toHaveBeenCalled();
+    expect(api.uploadImage).not.toHaveBeenCalled();
   });
 });

@@ -2,9 +2,11 @@ import {
   Alert,
   Avatar,
   Badge,
+  Box,
   Button,
   Card,
   Group,
+  Image,
   SegmentedControl,
   SimpleGrid,
   Skeleton,
@@ -20,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { errorMessage, useApi } from '../lib/api';
 import { useAuth } from '../lib/auth-context';
+import { objectPosition } from '../lib/cover';
 import { formatRange } from '../lib/slots';
 import type { EventSummary } from '../lib/types';
 
@@ -28,7 +31,22 @@ type Filter = 'all' | 'owner' | 'participant';
 function EventCard({ e }: { e: EventSummary }) {
   const { t } = useTranslation();
   return (
-    <Card component={Link} to={`/e/${e.id}`} p="lg" className="hover-lift" aria-label={e.title}>
+    <Card component={Link} to={`/e/${e.id}`} padding="lg" className="hover-lift" aria-label={e.title}>
+      <Card.Section mb="md">
+        {e.cover ? (
+          <Image
+            src={e.cover.url}
+            alt=""
+            h={120}
+            fit="cover"
+            style={{ objectPosition: objectPosition(e.cover.focus) }}
+          />
+        ) : (
+          <Box h={120} className="cover-placeholder" data-testid="cover-placeholder">
+            <IconCalendarEvent size={36} stroke={1.5} />
+          </Box>
+        )}
+      </Card.Section>
       <Group justify="space-between" mb="xs" wrap="nowrap">
         <Badge variant="light" color={e.role === 'owner' ? 'indigo' : 'grape'}>
           {e.role === 'owner' ? t('dashboard.organizer') : t('dashboard.participant')}

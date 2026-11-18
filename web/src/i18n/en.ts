@@ -109,6 +109,18 @@ export const en = {
     draftRestoredText: 'We kept the changes you had not saved yet.',
     discardDraft: 'Discard draft',
   },
+  cover: {
+    title: 'Cover image',
+    hint: 'Optional. JPEG, PNG, WebP or GIF, up to 10 MB.',
+    drop: 'Drag an image here or click to choose one',
+    replace: 'Replace',
+    remove: 'Remove',
+    tooLarge: 'This image is larger than 10 MB.',
+    invalidType: 'Choose a JPEG, PNG, WebP or GIF image.',
+    uploadFailed: 'The event was saved, but its image could not be updated',
+    reposition: 'Drag to reposition',
+    repositionLabel: 'Cover image position. Drag the image, or use the arrow keys, to choose what stays visible.',
+  },
   days: {
     selected_one: '{{count}} day selected',
     selected_other: '{{count}} days selected',
@@ -221,6 +233,10 @@ export const en = {
     too_many_slots: 'Too many options.',
     invalid_slot: 'Every option must end after it starts.',
     duplicate_slot: 'Options must be unique.',
+    image_too_large: 'The image is too large (10 MB maximum).',
+    invalid_image: 'The file is not a supported image (JPEG, PNG, WebP or GIF).',
+    image_not_found: 'This event has no image.',
+    invalid_focus: 'Invalid image position.',
   },
 };
 

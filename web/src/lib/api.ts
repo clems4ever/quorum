@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import i18n from '../i18n';
-import type { EventDetail, EventInput, EventSummary, User, VoteOrNo } from './types';
+import type { EventDetail, EventInput, EventSummary, Focus, User, VoteOrNo } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -25,6 +25,9 @@ export interface Api {
   reopenEvent(id: string): Promise<EventDetail>;
   respond(id: string, votes: Record<string, VoteOrNo>): Promise<EventDetail>;
   withdraw(id: string): Promise<EventDetail>;
+  uploadImage(id: string, image: Blob, focus: Focus): Promise<EventDetail>;
+  setImageFocus(id: string, focus: Focus): Promise<EventDetail>;
+  deleteImage(id: string): Promise<EventDetail>;
   /** Registers a listener called whenever the server reports that the session is gone. */
   onUnauthorized(listener: () => void): () => void;
 }
@@ -45,12 +48,17 @@ function isErrorBody(v: unknown): v is ErrorBody {
 export function createApi(fetchFn: Fetch = (...args) => fetch(...args)): Api {
   const listeners = new Set<() => void>();
 
+  /** Sends a request; a Blob body is sent as is, anything else as JSON. */
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const blob = body instanceof Blob;
     const res = await fetchFn(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers:
+        body === undefined
+          ? undefined
+          : { 'Content-Type': blob ? body.type || 'application/octet-stream' : 'application/json' },
+      body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
     });
     if (res.status === 204) {
       return undefined as T;
@@ -85,6 +93,9 @@ export function createApi(fetchFn: Fetch = (...args) => fetch(...args)): Api {
     reopenEvent: (id) => call('POST', `${ev(id)}/reopen`),
     respond: (id, votes) => call('PUT', `${ev(id)}/response`, { votes }),
     withdraw: (id) => call('DELETE', `${ev(id)}/response`),
+    uploadImage: (id, image, focus) => call('PUT', `${ev(id)}/image?x=${focus.x}&y=${focus.y}`, image),
+    setImageFocus: (id, focus) => call('PATCH', `${ev(id)}/image`, { focus }),
+    deleteImage: (id) => call('DELETE', `${ev(id)}/image`),
     onUnauthorized(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

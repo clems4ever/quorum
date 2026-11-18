@@ -23,6 +23,9 @@ export function fakeApi(overrides: Partial<Api> = {}): { [K in keyof Api]: Mock<
     reopenEvent: vi.fn().mockResolvedValue(eventFixture()),
     respond: vi.fn().mockResolvedValue(eventFixture()),
     withdraw: vi.fn().mockResolvedValue(eventFixture()),
+    uploadImage: vi.fn().mockResolvedValue(eventFixture()),
+    deleteImage: vi.fn().mockResolvedValue(eventFixture()),
+    setImageFocus: vi.fn().mockResolvedValue(eventFixture()),
     onUnauthorized: vi.fn(() => () => {}),
     ...overrides,
   } as never;

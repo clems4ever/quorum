@@ -30,3 +30,16 @@ body {
   box-shadow: var(--mantine-shadow-md);
   border-color: var(--mantine-primary-color-light-color);
 }
+
+.cover-placeholder {
+  display: grid;
+  place-items: center;
+  color: light-dark(var(--mantine-color-indigo-4), var(--mantine-color-indigo-3));
+  background:
+    radial-gradient(circle at 20% 20%, light-dark(rgba(121, 80, 242, 0.18), rgba(121, 80, 242, 0.28)), transparent 60%),
+    linear-gradient(
+      135deg,
+      light-dark(var(--mantine-color-indigo-0), var(--mantine-color-dark-5)),
+      light-dark(var(--mantine-color-violet-1), var(--mantine-color-dark-6))
+    );
+}

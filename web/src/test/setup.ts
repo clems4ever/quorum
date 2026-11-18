@@ -43,3 +43,10 @@ window.ResizeObserver = ResizeObserver;
 Object.defineProperty(document, 'fonts', {
   value: { addEventListener: () => {}, removeEventListener: () => {}, ready: Promise.resolve() },
 });
+
+// jsdom has no object URLs; previews only need a stable string.
+URL.createObjectURL = (obj: Blob | MediaSource) => `blob:${obj instanceof File ? obj.name : 'preview'}`;
+URL.revokeObjectURL = () => {};
+
+// jsdom does not implement pointer capture.
+HTMLElement.prototype.setPointerCapture = () => {};

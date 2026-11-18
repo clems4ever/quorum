@@ -51,6 +51,31 @@ describe('createApi', () => {
     ]);
   });
 
+  it('uploads images as raw bodies and deletes them', async () => {
+    const f = respond(200, {});
+    const api = createApi(f);
+    const photo = new Blob(['x'], { type: 'image/png' });
+    await api.uploadImage('e', photo, { x: 0.25, y: 1 });
+    expect(f).toHaveBeenLastCalledWith('/api/events/e/image?x=0.25&y=1', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'image/png' },
+      body: photo,
+    });
+    await api.uploadImage('e', new Blob(['x']), { x: 0.5, y: 0.5 });
+    expect(f).toHaveBeenLastCalledWith(
+      '/api/events/e/image?x=0.5&y=0.5',
+      expect.objectContaining({ headers: { 'Content-Type': 'application/octet-stream' } }),
+    );
+    await api.setImageFocus('e', { x: 0.1, y: 0.2 });
+    expect(f).toHaveBeenLastCalledWith(
+      '/api/events/e/image',
+      expect.objectContaining({ method: 'PATCH', body: '{"focus":{"x":0.1,"y":0.2}}' }),
+    );
+    await api.deleteImage('e');
+    expect(f).toHaveBeenLastCalledWith('/api/events/e/image', expect.objectContaining({ method: 'DELETE' }));
+  });
+
   it('handles empty responses', async () => {
     const f = respond(204);
     const api = createApi(f);

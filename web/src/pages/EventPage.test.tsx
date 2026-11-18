@@ -170,4 +170,12 @@ describe('EventPage', () => {
     expect(await screen.findByText('09:00 – 10:00')).toBeInTheDocument();
     expect(screen.getByText('Time slots')).toBeInTheDocument();
   });
+
+  it('shows the cover image', async () => {
+    const cover = { url: '/api/events/ev1/image?v=1', focus: { x: 0.25, y: 0.75 } };
+    render(fakeApi({ getEvent: vi.fn().mockResolvedValue(eventFixture({ cover })) }));
+    const img = await screen.findByRole('img', { name: 'Team offsite' });
+    expect(img).toHaveAttribute('src', '/api/events/ev1/image?v=1');
+    expect(img).toHaveStyle({ objectPosition: '25% 75%' });
+  });
 });

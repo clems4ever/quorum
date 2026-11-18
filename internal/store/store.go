@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS responses (
 	PRIMARY KEY (event_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS responses_user ON responses(user_id);
+CREATE TABLE IF NOT EXISTS event_images (
+	event_id     TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+	content_type TEXT NOT NULL,
+	version      TEXT NOT NULL,
+	data         BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS votes (
 	slot_id TEXT NOT NULL REFERENCES slots(id) ON DELETE CASCADE,
 	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -84,9 +90,34 @@ func Open(ctx context.Context, path string) (*SQLite, error) {
 	return s, nil
 }
 
+// migrations[i] upgrades the database from version i to i+1, the version
+// being stored in SQLite's user_version. Never edit a released migration:
+// append a new one.
+var migrations = []string{
+	// 1: base schema. Databases created before versioning already have it,
+	// which is why it only uses IF NOT EXISTS.
+	schema,
+	// 2: focal point of cover images.
+	`ALTER TABLE event_images ADD COLUMN focus_x REAL NOT NULL DEFAULT 0.5;
+	 ALTER TABLE event_images ADD COLUMN focus_y REAL NOT NULL DEFAULT 0.5;`,
+}
+
 func (s *SQLite) migrate(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+	var version int
+	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	for i := version; i < len(migrations); i++ {
+		err := s.tx(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, i+1))
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("migrate to version %d: %w", i+1, err)
+		}
 	}
 	return nil
 }
@@ -274,14 +305,16 @@ func (s *SQLite) DeleteEvent(ctx context.Context, eventID string) error {
 // GetEvent loads an event with its slots and responses.
 func (s *SQLite) GetEvent(ctx context.Context, eventID string) (model.EventDetail, error) {
 	var d model.EventDetail
+	var cover nullCover
 	var mode string
 	var created, updated int64
 	err := s.db.QueryRowContext(ctx, `
 		SELECT e.id, e.title, e.description, e.location, e.mode, e.closed, e.final_slot_id, e.created_at, e.updated_at,
-		       u.id, u.email, u.name, u.picture
-		FROM events e JOIN users u ON u.id = e.owner_id WHERE e.id = ?`, eventID).
+		       u.id, u.email, u.name, u.picture, i.version, i.focus_x, i.focus_y
+		FROM events e JOIN users u ON u.id = e.owner_id
+		LEFT JOIN event_images i ON i.event_id = e.id WHERE e.id = ?`, eventID).
 		Scan(&d.ID, &d.Title, &d.Description, &d.Location, &mode, &d.Closed, &d.FinalSlotID, &created, &updated,
-			&d.Owner.ID, &d.Owner.Email, &d.Owner.Name, &d.Owner.Picture)
+			&d.Owner.ID, &d.Owner.Email, &d.Owner.Name, &d.Owner.Picture, &cover.version, &cover.x, &cover.y)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, model.ErrNotFound
 	}
@@ -290,6 +323,7 @@ func (s *SQLite) GetEvent(ctx context.Context, eventID string) (model.EventDetai
 	}
 	d.Mode = model.Mode(mode)
 	d.CreatedAt, d.UpdatedAt = fromUnix(created), fromUnix(updated)
+	d.Cover = cover.model()
 	if d.Slots, err = s.slots(ctx, eventID); err != nil {
 		return d, err
 	}
@@ -411,8 +445,10 @@ func (s *SQLite) ListEvents(ctx context.Context, userID string) ([]model.EventSu
 		       (SELECT COUNT(*) FROM slots s WHERE s.event_id = e.id),
 		       (SELECT COUNT(*) FROM responses r WHERE r.event_id = e.id),
 		       (SELECT MIN(start_at) FROM slots s WHERE s.event_id = e.id),
-		       (SELECT MAX(end_at) FROM slots s WHERE s.event_id = e.id)
+		       (SELECT MAX(end_at) FROM slots s WHERE s.event_id = e.id),
+		       i.version, i.focus_x, i.focus_y
 		FROM events e JOIN users u ON u.id = e.owner_id
+		LEFT JOIN event_images i ON i.event_id = e.id
 		WHERE e.owner_id = ? OR EXISTS (SELECT 1 FROM responses r WHERE r.event_id = e.id AND r.user_id = ?)
 		ORDER BY e.updated_at DESC, e.id`, userID, userID)
 	if err != nil {
@@ -423,11 +459,13 @@ func (s *SQLite) ListEvents(ctx context.Context, userID string) ([]model.EventSu
 		var mode string
 		var created, updated int64
 		var first, last sql.NullInt64
+		var cover nullCover
 		if err := row.Scan(&es.ID, &es.Title, &es.Location, &mode, &es.Closed, &created, &updated,
 			&es.Owner.ID, &es.Owner.Email, &es.Owner.Name, &es.Owner.Picture,
-			&es.SlotCount, &es.ResponseCount, &first, &last); err != nil {
+			&es.SlotCount, &es.ResponseCount, &first, &last, &cover.version, &cover.x, &cover.y); err != nil {
 			return es, err
 		}
+		es.Cover = cover.model()
 		es.Mode = model.Mode(mode)
 		es.CreatedAt, es.UpdatedAt = fromUnix(created), fromUnix(updated)
 		if first.Valid {
@@ -443,6 +481,83 @@ func (s *SQLite) ListEvents(ctx context.Context, userID string) ([]model.EventSu
 			es.Role = model.RoleOwner
 		}
 		return es, nil
+	})
+}
+
+// SetEventImage stores (or replaces) the cover image of an event.
+func (s *SQLite) SetEventImage(ctx context.Context, eventID string, img model.Image, now time.Time) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE events SET updated_at = ? WHERE id = ?`, unix(now), eventID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return model.ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO event_images (event_id, content_type, version, data, focus_x, focus_y) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(event_id) DO UPDATE SET
+				content_type = excluded.content_type, version = excluded.version, data = excluded.data,
+				focus_x = excluded.focus_x, focus_y = excluded.focus_y`,
+			eventID, img.ContentType, img.Version, img.Data, img.Focus.X, img.Focus.Y)
+		return err
+	})
+}
+
+// EventImage returns the cover image of an event, or model.ErrNotFound.
+func (s *SQLite) EventImage(ctx context.Context, eventID string) (model.Image, error) {
+	var img model.Image
+	err := s.db.QueryRowContext(ctx,
+		`SELECT content_type, version, data, focus_x, focus_y FROM event_images WHERE event_id = ?`, eventID).
+		Scan(&img.ContentType, &img.Version, &img.Data, &img.Focus.X, &img.Focus.Y)
+	if errors.Is(err, sql.ErrNoRows) {
+		return img, model.ErrNotFound
+	}
+	return img, err
+}
+
+// SetImageFocus changes the focal point of an event's cover image. It returns
+// model.ErrNotFound when the event has no image.
+func (s *SQLite) SetImageFocus(ctx context.Context, eventID string, focus model.Focus, now time.Time) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE event_images SET focus_x = ?, focus_y = ? WHERE event_id = ?`,
+			focus.X, focus.Y, eventID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return model.ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE events SET updated_at = ? WHERE id = ?`, unix(now), eventID)
+		return err
+	})
+}
+
+// nullCover scans the optional cover columns of a LEFT JOIN.
+type nullCover struct {
+	version sql.NullString
+	x, y    sql.NullFloat64
+}
+
+func (c nullCover) model() *model.Cover {
+	if !c.version.Valid {
+		return nil
+	}
+	return &model.Cover{Version: c.version.String, Focus: model.Focus{X: c.x.Float64, Y: c.y.Float64}}
+}
+
+// DeleteEventImage removes the cover image of an event, if any.
+func (s *SQLite) DeleteEventImage(ctx context.Context, eventID string, now time.Time) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM event_images WHERE event_id = ?`, eventID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE events SET updated_at = ? WHERE id = ?`, unix(now), eventID)
+		return err
 	})
 }
 

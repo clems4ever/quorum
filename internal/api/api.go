@@ -3,13 +3,19 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"quorum/internal/imageproc"
 	"quorum/internal/model"
 )
 
@@ -32,7 +38,14 @@ type Store interface {
 	ListEvents(ctx context.Context, userID string) ([]model.EventSummary, error)
 	SetResponse(ctx context.Context, eventID, userID string, votes map[string]model.Vote, now time.Time) error
 	DeleteResponse(ctx context.Context, eventID, userID string) error
+	SetEventImage(ctx context.Context, eventID string, img model.Image, now time.Time) error
+	EventImage(ctx context.Context, eventID string) (model.Image, error)
+	DeleteEventImage(ctx context.Context, eventID string, now time.Time) error
+	SetImageFocus(ctx context.Context, eventID string, focus model.Focus, now time.Time) error
 }
+
+// NormalizeImage validates an uploaded image and re-encodes it.
+type NormalizeImage func(r io.Reader) (imageproc.Image, error)
 
 // Authenticator resolves the user of a request.
 type Authenticator interface {
@@ -45,6 +58,7 @@ type API struct {
 	Auth   Authenticator
 	Now    func() time.Time
 	NewID  func() (string, error)
+	Images NormalizeImage
 	Logger *slog.Logger
 }
 
@@ -60,6 +74,10 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/events/{id}/reopen", a.authed(a.reopenEvent))
 	mux.HandleFunc("PUT /api/events/{id}/response", a.authed(a.setResponse))
 	mux.HandleFunc("DELETE /api/events/{id}/response", a.authed(a.deleteResponse))
+	mux.HandleFunc("GET /api/events/{id}/image", a.authed(a.getImage))
+	mux.HandleFunc("PUT /api/events/{id}/image", a.authed(a.putImage))
+	mux.HandleFunc("PATCH /api/events/{id}/image", a.authed(a.patchImage))
+	mux.HandleFunc("DELETE /api/events/{id}/image", a.authed(a.deleteImage))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, errRouteNotFound)
 	})
@@ -115,6 +133,10 @@ var (
 	errTooManySlots       = apiError{"too_many_slots", "too many slots"}
 	errInvalidSlot        = apiError{"invalid_slot", "every slot must end after it starts"}
 	errDuplicateSlot      = apiError{"duplicate_slot", "slots must be unique"}
+	errImageTooLarge      = apiError{"image_too_large", "the image is too large"}
+	errInvalidImage       = apiError{"invalid_image", "the file is not a supported image (JPEG, PNG, WebP or GIF)"}
+	errImageNotFound      = apiError{"image_not_found", "this event has no image"}
+	errInvalidFocus       = apiError{"invalid_focus", "the focus must be within [0, 1]"}
 )
 
 func writeError(w http.ResponseWriter, status int, e apiError) {
@@ -141,6 +163,9 @@ func (a *API) listEvents(w http.ResponseWriter, r *http.Request, u model.User) {
 	if err != nil {
 		a.internal(w, err)
 		return
+	}
+	for i := range list {
+		withURL(list[i].ID, list[i].Cover)
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -255,7 +280,131 @@ func (a *API) respondEvent(w http.ResponseWriter, r *http.Request, id string, st
 		a.internal(w, err)
 		return
 	}
+	withURL(d.ID, d.Cover)
 	writeJSON(w, status, d)
+}
+
+// withURL sets the URL of an event's cover image, if any. The version makes
+// the URL change with the image, so it can be cached forever.
+func withURL(eventID string, c *model.Cover) {
+	if c != nil {
+		c.URL = "/api/events/" + url.PathEscape(eventID) + "/image?v=" + url.QueryEscape(c.Version)
+	}
+}
+
+// parseFocus reads the optional focus of an upload from the x and y query
+// parameters; the center is the default.
+func parseFocus(q url.Values) (model.Focus, bool) {
+	f := model.CenterFocus
+	for _, p := range []struct {
+		name string
+		dst  *float64
+	}{{"x", &f.X}, {"y", &f.Y}} {
+		if v := q.Get(p.name); v != "" {
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return f, false
+			}
+			*p.dst = n
+		}
+	}
+	return f, f.Valid()
+}
+
+func (a *API) getImage(w http.ResponseWriter, r *http.Request, _ model.User) {
+	img, err := a.Store.EventImage(r.Context(), r.PathValue("id"))
+	if errors.Is(err, model.ErrNotFound) {
+		writeError(w, http.StatusNotFound, errImageNotFound)
+		return
+	}
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	etag := `"` + img.Version + `"`
+	h := w.Header()
+	h.Set("ETag", etag)
+	h.Set("Cache-Control", "private, max-age=31536000, immutable")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.Set("Content-Type", img.ContentType)
+	h.Set("Content-Length", strconv.Itoa(len(img.Data)))
+	_, _ = w.Write(img.Data) // a failed write means the client went away
+}
+
+func (a *API) putImage(w http.ResponseWriter, r *http.Request, u model.User) {
+	focus, valid := parseFocus(r.URL.Query())
+	if !valid {
+		writeError(w, http.StatusBadRequest, errInvalidFocus)
+		return
+	}
+	d, ok := a.loadOwned(w, r, u)
+	if !ok {
+		return
+	}
+	img, err := a.Images(r.Body)
+	switch {
+	case errors.Is(err, imageproc.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, errImageTooLarge)
+		return
+	case errors.Is(err, imageproc.ErrUnsupported):
+		writeError(w, http.StatusBadRequest, errInvalidImage)
+		return
+	case err != nil:
+		a.internal(w, err)
+		return
+	}
+	sum := sha256.Sum256(img.Data)
+	stored := model.Image{ContentType: img.ContentType, Data: img.Data, Version: hex.EncodeToString(sum[:8]), Focus: focus}
+	if err := a.Store.SetEventImage(r.Context(), d.ID, stored, a.Now().UTC()); err != nil {
+		a.internal(w, err)
+		return
+	}
+	a.respondEvent(w, r, d.ID, http.StatusOK)
+}
+
+type focusInput struct {
+	Focus model.Focus `json:"focus"`
+}
+
+func (a *API) patchImage(w http.ResponseWriter, r *http.Request, u model.User) {
+	var in focusInput
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, errInvalidJSON)
+		return
+	}
+	if !in.Focus.Valid() {
+		writeError(w, http.StatusBadRequest, errInvalidFocus)
+		return
+	}
+	d, ok := a.loadOwned(w, r, u)
+	if !ok {
+		return
+	}
+	err := a.Store.SetImageFocus(r.Context(), d.ID, in.Focus, a.Now().UTC())
+	if errors.Is(err, model.ErrNotFound) {
+		writeError(w, http.StatusNotFound, errImageNotFound)
+		return
+	}
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	a.respondEvent(w, r, d.ID, http.StatusOK)
+}
+
+func (a *API) deleteImage(w http.ResponseWriter, r *http.Request, u model.User) {
+	d, ok := a.loadOwned(w, r, u)
+	if !ok {
+		return
+	}
+	if err := a.Store.DeleteEventImage(r.Context(), d.ID, a.Now().UTC()); err != nil {
+		a.internal(w, err)
+		return
+	}
+	a.respondEvent(w, r, d.ID, http.StatusOK)
 }
 
 func (a *API) getEvent(w http.ResponseWriter, r *http.Request, _ model.User) {

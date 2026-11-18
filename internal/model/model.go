@@ -61,8 +61,40 @@ type Event struct {
 	Slots       []Slot    `json:"slots"`
 	Closed      bool      `json:"closed"`
 	FinalSlotID string    `json:"finalSlotId,omitempty"`
+	Cover       *Cover    `json:"cover,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// Image is the cover image of an event.
+type Image struct {
+	ContentType string
+	Data        []byte
+	// Version changes whenever the image does (a content hash).
+	Version string
+	Focus   Focus
+}
+
+// Focus is the point of an image that stays visible when it is cropped, as
+// fractions of its width and height (0.5, 0.5 is the center).
+type Focus struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// CenterFocus is the default focus.
+var CenterFocus = Focus{X: 0.5, Y: 0.5}
+
+// Valid reports whether both coordinates are within [0, 1].
+func (f Focus) Valid() bool { return f.X >= 0 && f.X <= 1 && f.Y >= 0 && f.Y <= 1 }
+
+// Cover describes the cover image of an event.
+type Cover struct {
+	// Version changes whenever the image does; it is not exposed as is.
+	Version string `json:"-"`
+	// URL is filled in by the API layer.
+	URL   string `json:"url"`
+	Focus Focus  `json:"focus"`
 }
 
 // Response is the set of votes a participant gave to an event.
@@ -101,6 +133,7 @@ type EventSummary struct {
 	ResponseCount int        `json:"responseCount"`
 	FirstStart    *time.Time `json:"firstStart,omitempty"`
 	LastEnd       *time.Time `json:"lastEnd,omitempty"`
+	Cover         *Cover     `json:"cover,omitempty"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 }

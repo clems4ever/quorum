@@ -69,4 +69,17 @@ describe('Dashboard', () => {
     expect(await screen.findByText('1 day option')).toBeInTheDocument();
     expect(screen.getByText('2 responses')).toBeInTheDocument();
   });
+
+  it('shows cover images or a placeholder', async () => {
+    const events = [
+      summaryFixture({ cover: { url: '/api/events/ev1/image?v=1', focus: { x: 0, y: 1 } } }),
+      summaryFixture({ id: 'ev2', title: 'Other' }),
+    ];
+    const { container } = renderWithApp(<Dashboard />, {
+      api: fakeApi({ listEvents: vi.fn().mockResolvedValue(events) }),
+    });
+    await screen.findByText('Other');
+    expect(container.querySelector('img[src="/api/events/ev1/image?v=1"]')).toHaveStyle({ objectPosition: '0% 100%' });
+    expect(screen.getAllByTestId('cover-placeholder')).toHaveLength(1);
+  });
 });
