@@ -70,12 +70,14 @@ jobs:
       matrix:
         include:
           - target: prod
-            suffix: ''
+            publish: true
+          # The demo image (fake Google sign-in) is only built to check the
+          # Dockerfile; it is never published.
           - target: demo
-            suffix: '-demo'
+            publish: false
     env:
-      # Images are built on every run but only published from main.
-      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      # Images are built on every run; the production one is published from main.
+      PUBLISH: ${{ matrix.publish && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -88,7 +90,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
             type=sha,format=long

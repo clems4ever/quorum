@@ -104,7 +104,7 @@ docker compose up -d
 
 Traefik must share the external network `TRAEFIK_NETWORK` (default `traefik`) and provide the entrypoint `TRAEFIK_ENTRYPOINT` (default `websecure`) and the resolver `TRAEFIK_CERTRESOLVER` (default `letsencrypt`). Add `https://<QUORUM_HOST>/auth/callback` to the OAuth client's redirect URIs. Pin a build with `QUORUM_TAG=sha-<commit>`.
 
-`compose.demo.yaml` runs the demo image with the fake Google sign-in on `QUORUM_DEMO_HOST`: `docker compose -f compose.demo.yaml up -d`. Don't use it for real data, because anyone can sign in as anybody.
+`compose.demo.yaml` builds and runs the demo image with the fake Google sign-in on `QUORUM_DEMO_HOST`: `docker compose -f compose.demo.yaml up -d --build`. Don't use it for real data, because anyone can sign in as anybody.
 
 ## CI
 
@@ -112,4 +112,4 @@ Traefik must share the external network `TRAEFIK_NETWORK` (default `traefik`) an
 
 1. **Backend:** golangci-lint, `go build`, `go test -race`. The job fails if total coverage is below 85%.
 2. **Frontend:** Prettier check, ESLint (no warnings allowed), type check and production build, plus vitest with 85% coverage thresholds.
-3. **Docker:** both images (production and demo) are built on every run. On `main` only, it publishes `ghcr.io/<owner>/<repo>:latest` and `:sha-<commit>` (production), plus the matching `ghcr.io/<owner>/<repo>-demo` images, with the commit as `quorum --version`.
+3. **Docker:** both images (production and demo) are built on every run. On `main` only, the production image is published as `ghcr.io/<owner>/<repo>:latest` and `:sha-<commit>`, with the commit as `quorum --version`. The demo image is never published; build it locally (`docker build --target demo .`).

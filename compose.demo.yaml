@@ -2,13 +2,18 @@
 # behind an existing Traefik. Never expose this as a real service: anyone can
 # sign in as anybody.
 #
-#   docker compose -f compose.demo.yaml up -d
+#   docker compose -f compose.demo.yaml up -d --build
+#
+# The demo image is not published: it is built from this repository.
 
 name: quorum-demo
 
 services:
   quorum-demo:
-    image: ghcr.io/clems4ever/quorum-demo:${QUORUM_TAG:-latest}
+    image: quorum-demo:local
+    build:
+      context: .
+      target: demo
     restart: unless-stopped
     environment:
       PUBLIC_URL: https://${QUORUM_DEMO_HOST:?set QUORUM_DEMO_HOST, e.g. quorum-demo.example.com}
