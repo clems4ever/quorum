@@ -1,0 +1,39 @@
+# Quorum demo with the fake Google sign-in (click a profile to sign in),
+# behind an existing Traefik. Never expose this as a real service: anyone can
+# sign in as anybody.
+#
+#   docker compose -f compose.demo.yaml up -d
+
+name: quorum-demo
+
+services:
+  quorum-demo:
+    image: ghcr.io/clems4ever/quorum-demo:${QUORUM_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: https://${QUORUM_DEMO_HOST:?set QUORUM_DEMO_HOST, e.g. quorum-demo.example.com}
+    volumes:
+      - quorum-demo-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik}
+      traefik.http.routers.quorum-demo.rule: Host(`${QUORUM_DEMO_HOST}`)
+      traefik.http.routers.quorum-demo.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.quorum-demo.tls: "true"
+      traefik.http.routers.quorum-demo.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      # One port serves both the app and the fake provider (/fake-google/*).
+      traefik.http.services.quorum-demo.loadbalancer.server.port: "9090"
+      traefik.http.services.quorum-demo.loadbalancer.healthcheck.path: /healthz
+      traefik.http.services.quorum-demo.loadbalancer.healthcheck.interval: 30s
+
+volumes:
+  quorum-demo-data:
+
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK:-traefik}
+    external: true

@@ -1,0 +1,49 @@
+# Quorum behind an existing Traefik (v2 or v3) using the Docker provider.
+#
+#   cp .env.example .env   # then fill it in
+#   docker compose up -d
+#
+# Traefik must be attached to the external network named by TRAEFIK_NETWORK
+# and expose an entrypoint (TRAEFIK_ENTRYPOINT) with a certificate resolver
+# (TRAEFIK_CERTRESOLVER). Redirecting HTTP to HTTPS is left to Traefik's
+# entrypoint configuration.
+
+name: quorum
+
+services:
+  quorum:
+    image: ghcr.io/clems4ever/quorum:${QUORUM_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: https://${QUORUM_HOST:?set QUORUM_HOST, e.g. quorum.example.com}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET}
+      SESSION_TTL: ${SESSION_TTL:-720h}
+    volumes:
+      - quorum-data:/data
+    # The image is distroless and only writes to /data.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik}
+      traefik.http.routers.quorum.rule: Host(`${QUORUM_HOST}`)
+      traefik.http.routers.quorum.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.quorum.tls: "true"
+      traefik.http.routers.quorum.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.quorum.middlewares: quorum-headers
+      traefik.http.middlewares.quorum-headers.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.quorum-headers.headers.stsIncludeSubdomains: "true"
+      traefik.http.services.quorum.loadbalancer.server.port: "8080"
+      traefik.http.services.quorum.loadbalancer.healthcheck.path: /healthz
+      traefik.http.services.quorum.loadbalancer.healthcheck.interval: 30s
+
+volumes:
+  quorum-data:
+
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK:-traefik}
+    external: true

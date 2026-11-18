@@ -93,6 +93,19 @@ docker run -p 8080:8080 -v quorum-data:/data \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... quorum
 ```
 
+## Docker Compose with Traefik
+
+`compose.yaml` runs the published image behind an existing [Traefik](https://traefik.io/) (v2 or v3, Docker provider), with HTTPS through a certificate resolver, HSTS, and Traefik health checks on `/healthz`. The container runs read-only, as non-root, with no capabilities. Data lives in the `quorum-data` volume.
+
+```sh
+cp .env.example .env    # set QUORUM_HOST, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+docker compose up -d
+```
+
+Traefik must share the external network `TRAEFIK_NETWORK` (default `traefik`) and provide the entrypoint `TRAEFIK_ENTRYPOINT` (default `websecure`) and the resolver `TRAEFIK_CERTRESOLVER` (default `letsencrypt`). Add `https://<QUORUM_HOST>/auth/callback` to the OAuth client's redirect URIs. Pin a build with `QUORUM_TAG=sha-<commit>`.
+
+`compose.demo.yaml` runs the demo image with the fake Google sign-in on `QUORUM_DEMO_HOST`: `docker compose -f compose.demo.yaml up -d`. Don't use it for real data, because anyone can sign in as anybody.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pull requests and on every push to `main`:
