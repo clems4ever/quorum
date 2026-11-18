@@ -1,0 +1,125 @@
+.wrap {
+  min-width: 680px;
+  user-select: none;
+}
+
+.header,
+.body {
+  display: grid;
+  grid-template-columns: 56px repeat(7, minmax(84px, 1fr));
+}
+
+.header {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.dayHeader {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.dayHeader[data-today] {
+  color: var(--mantine-primary-color-filled);
+}
+
+.times {
+  border-right: 1px solid var(--mantine-color-default-border);
+}
+
+.time {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+  text-align: right;
+  padding-right: 8px;
+  line-height: 1;
+  transform: translateY(-5px);
+}
+
+.column {
+  position: relative;
+  border-left: 1px solid var(--mantine-color-default-border);
+}
+
+.cell {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-top: 1px dashed light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cell[data-hour] {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.cell:hover:not(:disabled) {
+  background: var(--mantine-primary-color-light-hover);
+}
+
+.cell:disabled {
+  cursor: not-allowed;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6)) 6px 12px
+  );
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+.slot,
+.preview {
+  position: absolute;
+  border-radius: 6px;
+  padding: 2px 4px 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.slot {
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-color-white);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.slotLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slotRemove {
+  color: inherit;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.slotRemove:hover {
+  opacity: 1;
+}
+
+.preview {
+  left: 2px;
+  right: 2px;
+  background: var(--mantine-primary-color-light);
+  border: 2px dashed var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-light-color);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.wrap[data-dragging] .slot {
+  pointer-events: none;
+}

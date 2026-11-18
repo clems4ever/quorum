@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.T.Title}}</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f0f4f9; --card:#fff; --text:#1f1f1f; --muted:#444746; --line:#e3e3e3; --hover:#f3f6fc; --accent:#0b57d0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#131314; --card:#1e1f20; --text:#e3e3e3; --muted:#c4c7c5; --line:#3c4043; --hover:#2a2b2d; --accent:#a8c7fa; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text); font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif; }
+  .card { width: min(900px, 94vw); background:var(--card); border-radius:28px; padding:36px; display:grid; grid-template-columns: 1fr 1.2fr; gap:32px; }
+  @media (max-width: 720px) { .card { grid-template-columns: 1fr; } }
+  .logo { display:flex; gap:2px; font-size:22px; font-weight:500; }
+  h1 { font-size:36px; font-weight:400; margin:24px 0 12px; }
+  p { color:var(--muted); line-height:1.5; margin:0 0 8px; }
+  .badge { display:inline-block; margin-top:16px; padding:4px 10px; border-radius:999px; background:#fde68a; color:#78350f; font-size:12px; font-weight:600; letter-spacing:.02em; }
+  ul { list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
+  li form { margin:0; }
+  li button { all:unset; box-sizing:border-box; width:100%; display:flex; align-items:center; gap:14px; padding:12px 8px; border-bottom:1px solid var(--line); cursor:pointer; }
+  li button:hover, li button:focus-visible { background:var(--hover); }
+  img { width:36px; height:36px; border-radius:50%; }
+  .name { font-weight:500; font-size:14px; }
+  .email { color:var(--muted); font-size:12px; }
+  details { margin-top:16px; }
+  summary { cursor:pointer; color:var(--accent); font-weight:500; font-size:14px; padding:8px 0; }
+  .custom { display:grid; gap:10px; margin-top:8px; }
+  input { font:inherit; padding:12px 14px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--text); }
+  .actions { display:flex; justify-content:space-between; align-items:center; margin-top:20px; }
+  .primary { font:inherit; border:0; border-radius:999px; padding:10px 24px; background:var(--accent); color:var(--card); font-weight:500; cursor:pointer; }
+  .link { font:inherit; border:0; background:none; color:var(--accent); font-weight:500; cursor:pointer; padding:10px 0; }
+</style>
+</head>
+<body>
+<main class="card">
+  <section>
+    <div class="logo" aria-label="Google"><span style="color:#4285f4">G</span><span style="color:#ea4335">o</span><span style="color:#fbbc05">o</span><span style="color:#4285f4">g</span><span style="color:#34a853">l</span><span style="color:#ea4335">e</span></div>
+    <h1>{{.T.Heading}}</h1>
+    <p>{{.T.ContinueTo}} <strong>Quorum</strong></p>
+    <span class="badge">{{.T.Badge}}</span>
+    <p style="margin-top:16px;font-size:13px">{{.T.Explanation}}</p>
+  </section>
+  <section>
+    <ul>
+      {{range .Profiles}}
+      <li>
+        <form method="post">
+          <input type="hidden" name="client_id" value="{{$.Request.ClientID}}">
+          <input type="hidden" name="redirect_uri" value="{{$.Request.RedirectURI}}">
+          <input type="hidden" name="state" value="{{$.Request.State}}">
+          <input type="hidden" name="sub" value="{{.Sub}}">
+          <button type="submit" data-testid="profile-{{.Sub}}">
+            <img src="{{.Avatar}}" alt="">
+            <span><div class="name">{{.Name}}</div><div class="email">{{.Email}}</div></span>
+          </button>
+        </form>
+      </li>
+      {{end}}
+    </ul>
+    <details>
+      <summary>{{.T.Another}}</summary>
+      <form method="post" class="custom">
+        <input type="hidden" name="client_id" value="{{.Request.ClientID}}">
+        <input type="hidden" name="redirect_uri" value="{{.Request.RedirectURI}}">
+        <input type="hidden" name="state" value="{{.Request.State}}">
+        <input name="name" placeholder="{{.T.FullName}}" required maxlength="80">
+        <input name="email" type="email" placeholder="{{.T.Email}}" required>
+        <div><button class="primary" type="submit">{{.T.SignIn}}</button></div>
+      </form>
+    </details>
+    <form method="post" class="actions">
+      <input type="hidden" name="client_id" value="{{.Request.ClientID}}">
+      <input type="hidden" name="redirect_uri" value="{{.Request.RedirectURI}}">
+      <input type="hidden" name="state" value="{{.Request.State}}">
+      <button class="link" type="submit" name="action" value="cancel">{{.T.Cancel}}</button>
+    </form>
+  </section>
+</main>
+</body>
+</html>

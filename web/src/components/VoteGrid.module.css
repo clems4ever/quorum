@@ -1,0 +1,75 @@
+.table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-6));
+  min-width: 190px;
+  padding-right: var(--mantine-spacing-md) !important;
+}
+
+.slotHead {
+  text-align: center;
+  min-width: 76px;
+  padding: 10px 6px !important;
+  border-radius: var(--mantine-radius-md) var(--mantine-radius-md) 0 0;
+  vertical-align: top;
+}
+
+.table [data-state='best'] {
+  background: light-dark(var(--mantine-color-yellow-0), rgba(250, 176, 5, 0.08));
+}
+
+.table [data-state='final'] {
+  background: light-dark(var(--mantine-color-teal-0), rgba(18, 184, 134, 0.12));
+}
+
+.cellWrap {
+  padding: 3px 4px !important;
+}
+
+.cell {
+  height: 38px;
+  width: 100%;
+  min-width: 64px;
+  border-radius: var(--mantine-radius-md);
+  display: grid;
+  place-items: center;
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  color: var(--mantine-color-dimmed);
+  transition:
+    transform 80ms ease,
+    background-color 120ms ease;
+}
+
+.cell[data-vote='yes'] {
+  background: var(--mantine-color-teal-light);
+  color: var(--mantine-color-teal-light-color);
+}
+
+.cell[data-vote='maybe'] {
+  background: var(--mantine-color-yellow-light);
+  color: var(--mantine-color-yellow-light-color);
+}
+
+.cell[data-editable] {
+  cursor: pointer;
+  border: 1px dashed var(--mantine-color-default-border);
+}
+
+.cell[data-editable]:hover {
+  transform: scale(1.04);
+}
+
+.cell[data-editable]:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+}
+
+.mine td {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  padding-bottom: 10px !important;
+}

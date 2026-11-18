@@ -1,0 +1,32 @@
+body {
+  background: light-dark(
+    linear-gradient(180deg, var(--mantine-color-indigo-0) 0, var(--mantine-color-gray-0) 420px),
+    linear-gradient(180deg, rgba(76, 110, 245, 0.08) 0, var(--mantine-color-dark-8) 420px)
+  );
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+.mantine-AppShell-main {
+  background: transparent;
+}
+
+.mantine-AppShell-header {
+  backdrop-filter: blur(10px);
+  background: light-dark(rgba(255, 255, 255, 0.8), rgba(26, 27, 30, 0.8));
+}
+
+.hover-lift {
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+  text-decoration: none;
+  color: inherit;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--mantine-shadow-md);
+  border-color: var(--mantine-primary-color-light-color);
+}
